@@ -1978,14 +1978,20 @@ static YGCollectFlexItemsRowValues YGCalculateCollectFlexItemsRowValues(
 
   // Add items to the current line until it's full or we run out of items.
   uint32_t endOfLineIndex = startOfLineIndex;
+  size_t firstElementInLineIndex = startOfLineIndex;
   for (; endOfLineIndex < node->getChildren().size(); endOfLineIndex++) {
     const YGNodeRef child = node->getChild(endOfLineIndex);
     if (child->getStyle().display() == YGDisplayNone ||
         child->getStyle().positionType() == YGPositionTypeAbsolute) {
+      if (firstElementInLineIndex == endOfLineIndex) {
+        // We haven't found the first contributing element in the line yet.
+        firstElementInLineIndex++;
+      }
       continue;
     }
 
-    const bool isFirstElementInLine = (endOfLineIndex - startOfLineIndex) == 0;
+    const bool isFirstElementInLine =
+        (endOfLineIndex - firstElementInLineIndex) == 0;
 
     child->setLineIndex(lineCount);
     const float childMarginMainAxis =
