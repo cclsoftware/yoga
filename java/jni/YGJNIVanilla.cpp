@@ -15,14 +15,19 @@
 #include <memory>
 #include "YogaJniException.h"
 
+#include <yoga/Yoga-internal.h>
+#include <yoga/bits/BitCast.h>
+
 // TODO: Reconcile missing layoutContext functionality from callbacks in the C
 // API and use that
-#include <yoga/YGNode.h>
+#include <yoga/node/Node.h>
 
+using namespace facebook;
+using namespace facebook::yoga;
 using namespace facebook::yoga::vanillajni;
 
 static inline ScopedLocalRef<jobject> YGNodeJobject(
-    YGNodeRef node,
+    YGNodeConstRef node,
     void* layoutContext) {
   return reinterpret_cast<PtrJNodeMapVanilla*>(layoutContext)->ref(node);
 }
@@ -88,18 +93,6 @@ static void jni_YGConfigSetPointScaleFactorJNI(
   YGConfigSetPointScaleFactor(config, pixelsInPoint);
 }
 
-static void jni_YGConfigSetUseLegacyStretchBehaviourJNI(
-    JNIEnv* /*env*/,
-    jobject /*obj*/,
-    jlong nativePointer,
-    jboolean useLegacyStretchBehaviour) {
-  const YGConfigRef config = _jlong2YGConfigRef(nativePointer);
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated"
-  YGConfigSetUseLegacyStretchBehaviour(config, useLegacyStretchBehaviour);
-#pragma clang diagnostic pop
-}
-
 static void jni_YGConfigSetErrataJNI(
     JNIEnv* /*env*/,
     jobject /*obj*/,
@@ -133,14 +126,16 @@ static jlong jni_YGNodeNewWithConfigJNI(
 }
 
 static int YGJNILogFunc(
-    const YGConfigRef config,
-    const YGNodeRef /*node*/,
+    const YGConfigConstRef config,
+    const YGNodeConstRef /*node*/,
     YGLogLevel level,
     void* /*layoutContext*/,
     const char* format,
     va_list args) {
-  int result = vsnprintf(NULL, 0, format, args);
-  std::vector<char> buffer(1 + result);
+  va_list argsCopy;
+  va_copy(argsCopy, args);
+  int result = vsnprintf(nullptr, 0, format, argsCopy);
+  std::vector<char> buffer(1 + static_cast<size_t>(result));
   vsnprintf(buffer.data(), buffer.size(), format, args);
 
   auto jloggerPtr =
@@ -192,7 +187,7 @@ static void jni_YGConfigSetLoggerJNI(
     }
 
     *context = newGlobalRef(env, logger);
-    config->setLogger(YGJNILogFunc);
+    static_cast<yoga::Config*>(config)->setLogger(YGJNILogFunc);
   } else {
     if (context != nullptr) {
       delete context;
@@ -230,7 +225,9 @@ static void jni_YGNodeInsertChildJNI(
     jlong childPointer,
     jint index) {
   YGNodeInsertChild(
-      _jlong2YGNodeRef(nativePointer), _jlong2YGNodeRef(childPointer), index);
+      _jlong2YGNodeRef(nativePointer),
+      _jlong2YGNodeRef(childPointer),
+      static_cast<uint32_t>(index));
 }
 
 static void jni_YGNodeSwapChildJNI(
@@ -240,7 +237,9 @@ static void jni_YGNodeSwapChildJNI(
     jlong childPointer,
     jint index) {
   YGNodeSwapChild(
-      _jlong2YGNodeRef(nativePointer), _jlong2YGNodeRef(childPointer), index);
+      _jlong2YGNodeRef(nativePointer),
+      _jlong2YGNodeRef(childPointer),
+      static_cast<uint32_t>(index));
 }
 
 static void jni_YGNodeSetIsReferenceBaselineJNI(
@@ -280,8 +279,7 @@ static void YGTransferLayoutOutputsRecursive(
     JNIEnv* env,
     jobject thiz,
     YGNodeRef root,
-    void* layoutContext,
-    bool shouldCleanLocalRef) {
+    void* layoutContext) {
   if (!YGNodeGetHasNewLayout(root)) {
     return;
   }
@@ -302,13 +300,13 @@ static void YGTransferLayoutOutputsRecursive(
   const int arrSize = 6 + (marginFieldSet ? 4 : 0) + (paddingFieldSet ? 4 : 0) +
       (borderFieldSet ? 4 : 0);
   float arr[18];
-  arr[LAYOUT_EDGE_SET_FLAG_INDEX] = fieldFlags;
+  arr[LAYOUT_EDGE_SET_FLAG_INDEX] = static_cast<float>(fieldFlags);
   arr[LAYOUT_WIDTH_INDEX] = YGNodeLayoutGetWidth(root);
   arr[LAYOUT_HEIGHT_INDEX] = YGNodeLayoutGetHeight(root);
   arr[LAYOUT_LEFT_INDEX] = YGNodeLayoutGetLeft(root);
   arr[LAYOUT_TOP_INDEX] = YGNodeLayoutGetTop(root);
   arr[LAYOUT_DIRECTION_INDEX] =
-      static_cast<jint>(YGNodeLayoutGetDirection(root));
+      static_cast<float>(YGNodeLayoutGetDirection(root));
   if (marginFieldSet) {
     arr[LAYOUT_MARGIN_START_INDEX] = YGNodeLayoutGetMargin(root, YGEdgeLeft);
     arr[LAYOUT_MARGIN_START_INDEX + 1] = YGNodeLayoutGetMargin(root, YGEdgeTop);
@@ -335,28 +333,26 @@ static void YGTransferLayoutOutputsRecursive(
     arr[borderStartIndex + 3] = YGNodeLayoutGetBorder(root, YGEdgeBottom);
   }
 
-  // Don't change this field name without changing the name of the field in
-  // Database.java
-  auto objectClass = facebook::yoga::vanillajni::make_local_ref(
-      env, env->GetObjectClass(obj.get()));
-  static const jfieldID arrField = facebook::yoga::vanillajni::getFieldId(
-      env, objectClass.get(), "arr", "[F");
+  // Create scope to make sure to release any local refs created here
+  {
+    // Don't change this field name without changing the name of the field in
+    // Database.java
+    auto objectClass = facebook::yoga::vanillajni::make_local_ref(
+        env, env->GetObjectClass(obj.get()));
+    static const jfieldID arrField = facebook::yoga::vanillajni::getFieldId(
+        env, objectClass.get(), "arr", "[F");
 
-  ScopedLocalRef<jfloatArray> arrFinal =
-      make_local_ref(env, env->NewFloatArray(arrSize));
-  env->SetFloatArrayRegion(arrFinal.get(), 0, arrSize, arr);
-  env->SetObjectField(obj.get(), arrField, arrFinal.get());
-
-  if (shouldCleanLocalRef) {
-    objectClass.reset();
-    arrFinal.reset();
+    ScopedLocalRef<jfloatArray> arrFinal =
+        make_local_ref(env, env->NewFloatArray(arrSize));
+    env->SetFloatArrayRegion(arrFinal.get(), 0, arrSize, arr);
+    env->SetObjectField(obj.get(), arrField, arrFinal.get());
   }
 
   YGNodeSetHasNewLayout(root, false);
 
-  for (uint32_t i = 0; i < YGNodeGetChildCount(root); i++) {
+  for (size_t i = 0; i < YGNodeGetChildCount(root); i++) {
     YGTransferLayoutOutputsRecursive(
-        env, thiz, YGNodeGetChild(root, i), layoutContext, shouldCleanLocalRef);
+        env, thiz, YGNodeGetChild(root, i), layoutContext);
   }
 }
 
@@ -378,17 +374,13 @@ static void jni_YGNodeCalculateLayoutJNI(
     }
 
     const YGNodeRef root = _jlong2YGNodeRef(nativePointer);
-    const bool shouldCleanLocalRef =
-        root->getConfig()->isExperimentalFeatureEnabled(
-            YGExperimentalFeatureFixJNILocalRefOverflows);
     YGNodeCalculateLayoutWithContext(
         root,
         static_cast<float>(width),
         static_cast<float>(height),
         YGNodeStyleGetDirection(_jlong2YGNodeRef(nativePointer)),
         layoutContext);
-    YGTransferLayoutOutputsRecursive(
-        env, obj, root, layoutContext, shouldCleanLocalRef);
+    YGTransferLayoutOutputsRecursive(env, obj, root, layoutContext);
   } catch (const YogaJniException& jniException) {
     ScopedLocalRef<jthrowable> throwable = jniException.getThrowable();
     if (throwable.get()) {
@@ -635,7 +627,7 @@ static void jni_YGNodeStyleSetBorderJNI(
       yogaNodeRef, static_cast<YGEdge>(edge), static_cast<float>(border));
 }
 
-static void YGTransferLayoutDirection(YGNodeRef node, jobject javaNode) {
+static void YGTransferLayoutDirection(YGNodeConstRef node, jobject javaNode) {
   // Don't change this field name without changing the name of the field in
   // Database.java
   JNIEnv* env = getCurrentEnv();
@@ -651,7 +643,7 @@ static void YGTransferLayoutDirection(YGNodeRef node, jobject javaNode) {
 }
 
 static YGSize YGJNIMeasureFunc(
-    YGNodeRef node,
+    YGNodeConstRef node,
     float width,
     YGMeasureMode widthMode,
     float height,
@@ -671,13 +663,13 @@ static YGSize YGJNIMeasureFunc(
         sizeof(measureResult) == 8,
         "Expected measureResult to be 8 bytes, or two 32 bit ints");
 
-    int32_t wBits = 0xFFFFFFFF & (measureResult >> 32);
-    int32_t hBits = 0xFFFFFFFF & measureResult;
+    uint32_t wBits = 0xFFFFFFFF & (measureResult >> 32);
+    uint32_t hBits = 0xFFFFFFFF & measureResult;
 
-    const float* measuredWidth = reinterpret_cast<float*>(&wBits);
-    const float* measuredHeight = reinterpret_cast<float*>(&hBits);
+    const float measuredWidth = yoga::bit_cast<float>(wBits);
+    const float measuredHeight = yoga::bit_cast<float>(hBits);
 
-    return YGSize{*measuredWidth, *measuredHeight};
+    return YGSize{measuredWidth, measuredHeight};
   } else {
     return YGSize{
         widthMode == YGMeasureModeUndefined ? 0 : width,
@@ -691,12 +683,12 @@ static void jni_YGNodeSetHasMeasureFuncJNI(
     jobject /*obj*/,
     jlong nativePointer,
     jboolean hasMeasureFunc) {
-  _jlong2YGNodeRef(nativePointer)
+  static_cast<yoga::Node*>(_jlong2YGNodeRef(nativePointer))
       ->setMeasureFunc(hasMeasureFunc ? YGJNIMeasureFunc : nullptr);
 }
 
 static float YGJNIBaselineFunc(
-    YGNodeRef node,
+    YGNodeConstRef node,
     float width,
     float height,
     void* layoutContext) {
@@ -718,7 +710,7 @@ static void jni_YGNodeSetHasBaselineFuncJNI(
     jobject /*obj*/,
     jlong nativePointer,
     jboolean hasBaselineFunc) {
-  _jlong2YGNodeRef(nativePointer)
+  static_cast<yoga::Node*>(_jlong2YGNodeRef(nativePointer))
       ->setBaselineFunc(hasBaselineFunc ? YGJNIBaselineFunc : nullptr);
 }
 
@@ -786,9 +778,6 @@ static JNINativeMethod methods[] = {
     {"jni_YGConfigSetPointScaleFactorJNI",
      "(JF)V",
      (void*) jni_YGConfigSetPointScaleFactorJNI},
-    {"jni_YGConfigSetUseLegacyStretchBehaviourJNI",
-     "(JZ)V",
-     (void*) jni_YGConfigSetUseLegacyStretchBehaviourJNI},
     {"jni_YGConfigSetErrataJNI", "(JI)V", (void*) jni_YGConfigSetErrataJNI},
     {"jni_YGConfigGetErrataJNI", "(J)I", (void*) jni_YGConfigGetErrataJNI},
     {"jni_YGConfigSetLoggerJNI",

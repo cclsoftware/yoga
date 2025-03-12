@@ -9,7 +9,6 @@
 #include <yoga/event/event.h>
 #include <yoga/Yoga.h>
 #include <yoga/YGEnums.h>
-#include <yoga/YGNode.h>
 
 #include <algorithm>
 #include <functional>
@@ -18,9 +17,7 @@
 
 #include "util/TestUtil.h"
 
-namespace facebook {
-namespace yoga {
-namespace test {
+namespace facebook::yoga::test {
 
 template <Event::Type E>
 struct TypedEventTestData {};
@@ -32,7 +29,7 @@ struct TypedEventTestData<Event::LayoutPassEnd> {
 };
 
 struct EventArgs {
-  const YGNode* node;
+  const YGNodeConstRef node;
   Event::Type type;
   std::unique_ptr<void, std::function<void(void*)>> dataPtr;
   std::unique_ptr<void, std::function<void(void*)>> eventTestDataPtr;
@@ -50,7 +47,7 @@ struct EventArgs {
 
 class EventTest : public ::testing::Test {
   ScopedEventSubscription subscription = {&EventTest::listen};
-  static void listen(const YGNode&, Event::Type, Event::Data);
+  static void listen(YGNodeConstRef, Event::Type, Event::Data);
 
 public:
   static std::vector<EventArgs> events;
@@ -252,7 +249,7 @@ TEST_F(EventTest, layout_events_has_max_measure_cache) {
 TEST_F(EventTest, measure_functions_get_wrapped) {
   auto root = YGNodeNew();
   YGNodeSetMeasureFunc(
-      root, [](YGNodeRef, float, YGMeasureMode, float, YGMeasureMode) {
+      root, [](YGNodeConstRef, float, YGMeasureMode, float, YGMeasureMode) {
         return YGSize{};
       });
 
@@ -270,7 +267,8 @@ TEST_F(EventTest, baseline_functions_get_wrapped) {
   auto child = YGNodeNew();
   YGNodeInsertChild(root, child, 0);
 
-  YGNodeSetBaselineFunc(child, [](YGNodeRef, float, float) { return 0.0f; });
+  YGNodeSetBaselineFunc(
+      child, [](YGNodeConstRef, float, float) { return 0.0f; });
   YGNodeStyleSetFlexDirection(root, YGFlexDirectionRow);
   YGNodeStyleSetAlignItems(root, YGAlignBaseline);
 
@@ -286,16 +284,16 @@ TEST_F(EventTest, baseline_functions_get_wrapped) {
 namespace {
 
 template <Event::Type E>
-EventArgs createArgs(const YGNode& node, const Event::Data data) {
+EventArgs createArgs(YGNodeConstRef node, const Event::Data data) {
   using Data = Event::TypedData<E>;
   auto deleteData = [](void* x) { delete static_cast<Data*>(x); };
 
-  return {&node, E, {new Data{(data.get<E>())}, deleteData}, nullptr};
+  return {node, E, {new Data{(data.get<E>())}, deleteData}, nullptr};
 }
 
 template <Event::Type E>
 EventArgs createArgs(
-    const YGNode& node,
+    YGNodeConstRef node,
     const Event::Data data,
     TypedEventTestData<E> eventTestData) {
   using EventTestData = TypedEventTestData<E>;
@@ -311,7 +309,10 @@ EventArgs createArgs(
 
 } // namespace
 
-void EventTest::listen(const YGNode& node, Event::Type type, Event::Data data) {
+void EventTest::listen(
+    YGNodeConstRef node,
+    Event::Type type,
+    Event::Data data) {
   switch (type) {
     case Event::NodeAllocation:
       events.push_back(createArgs<Event::NodeAllocation>(node, data));
@@ -353,6 +354,4 @@ void EventTest::TearDown() {
 
 std::vector<EventArgs> EventTest::events{};
 
-} // namespace test
-} // namespace yoga
-} // namespace facebook
+} // namespace facebook::yoga::test

@@ -18,6 +18,6 @@ export type {
   Yoga,
 } from '../wrapAssembly';
 
-const loadAssembly = require('../../binaries/asmjs-sync-web');
+const loadAssembly = require('../../binaries/wasm-sync-web');
 const Yoga = wrapAssembly(loadAssembly());
 export default Yoga;

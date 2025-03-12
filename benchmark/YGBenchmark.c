@@ -55,7 +55,8 @@ static void __printBenchmarkResult(
   double mean = 0;
   clock_t lastEnd = start;
   for (uint32_t i = 0; i < NUM_REPETITIONS; i++) {
-    timesInMs[i] = (endTimes[i] - lastEnd) / (double) CLOCKS_PER_SEC * 1000;
+    timesInMs[i] =
+        ((double) (endTimes[i] - lastEnd)) / (double) CLOCKS_PER_SEC * 1000;
     lastEnd = endTimes[i];
     mean += timesInMs[i];
   }
@@ -75,7 +76,7 @@ static void __printBenchmarkResult(
 }
 
 static YGSize _measure(
-    YGNodeRef node,
+    YGNodeConstRef node,
     float width,
     YGMeasureMode widthMode,
     float height,

@@ -10,7 +10,6 @@
 import {
   argv,
   cleanTask,
-  eslintTask,
   logger,
   jestTask,
   option,
@@ -21,7 +20,7 @@ import {
   tscTask,
 } from 'just-scripts';
 
-import {readFile, writeFile} from 'fs/promises';
+import { readFile, writeFile } from 'fs/promises';
 
 import glob from 'glob';
 import path from 'path';
@@ -31,13 +30,13 @@ const node = process.execPath;
 
 option('fix');
 
-task('clean', cleanTask({paths: ['build', 'dist']}));
+task('clean', cleanTask({ paths: ['build', 'dist'] }));
 
 function defineFlavor(flavor: string, env: NodeJS.ProcessEnv) {
-  task(`cmake-build:${flavor}`, cmakeBuildTask({targets: [flavor]}));
+  task(`cmake-build:${flavor}`, cmakeBuildTask({ targets: [flavor] }));
   task(
     `jest:${flavor}`,
-    jestTask({config: path.join(__dirname, 'jest.config.ts'), env}),
+    jestTask({ config: path.join(__dirname, 'jest.config.ts'), env }),
   );
   task(
     `test:${flavor}`,
@@ -45,14 +44,14 @@ function defineFlavor(flavor: string, env: NodeJS.ProcessEnv) {
   );
 }
 
-defineFlavor('asmjs-async-node', {WASM: '0', SYNC: '0'});
-defineFlavor('asmjs-sync-node', {WASM: '0', SYNC: '1'});
-defineFlavor('asmjs-async-web', {WASM: '0', SYNC: '0'});
-defineFlavor('asmjs-sync-web', {WASM: '0', SYNC: '1'});
-defineFlavor('wasm-async-node', {WASM: '1', SYNC: '0'});
-defineFlavor('wasm-sync-node', {WASM: '1', SYNC: '1'});
-defineFlavor('wasm-async-web', {WASM: '1', SYNC: '0'});
-defineFlavor('wasm-sync-web', {WASM: '1', SYNC: '1'});
+defineFlavor('asmjs-async-node', { WASM: '0', SYNC: '0' });
+defineFlavor('asmjs-sync-node', { WASM: '0', SYNC: '1' });
+defineFlavor('asmjs-async-web', { WASM: '0', SYNC: '0' });
+defineFlavor('asmjs-sync-web', { WASM: '0', SYNC: '1' });
+defineFlavor('wasm-async-node', { WASM: '1', SYNC: '0' });
+defineFlavor('wasm-sync-node', { WASM: '1', SYNC: '1' });
+defineFlavor('wasm-async-web', { WASM: '1', SYNC: '0' });
+defineFlavor('wasm-sync-web', { WASM: '1', SYNC: '1' });
 
 task('build', series(emcmakeGenerateTask(), cmakeBuildTask()));
 
@@ -71,18 +70,12 @@ task(
   'benchmark',
   series(
     emcmakeGenerateTask(),
-    cmakeBuildTask({targets: ['asmjs-sync-node', 'wasm-sync-node']}),
+    cmakeBuildTask({ targets: ['asmjs-sync-node', 'wasm-sync-node'] }),
     runBenchTask(),
   ),
 );
 
-task(
-  'lint',
-  parallel(
-    tscTask({noEmit: true}),
-    series(eslintTask({fix: argv().fix}), clangFormatTask({fix: argv().fix})),
-  ),
-);
+task('clang-format', clangFormatTask({ fix: argv().fix }));
 
 task('prepack-package-json', async () => {
   const packageJsonPath = path.join(__dirname, 'package.json');
@@ -96,8 +89,8 @@ task('prepack-package-json', async () => {
 task(
   'prepack',
   series(
-    parallel('build', tscTask({emitDeclarationOnly: true})),
-    babelTransformTask({dir: 'src'}),
+    parallel('build', tscTask({ emitDeclarationOnly: true })),
+    babelTransformTask({ dir: 'src' }),
     'prepack-package-json',
   ),
 );
@@ -116,7 +109,7 @@ function recursiveReplace(
   }
 }
 
-function babelTransformTask(opts: {dir: string}) {
+function babelTransformTask(opts: { dir: string }) {
   return () => {
     const args = [
       opts.dir,
@@ -162,7 +155,7 @@ function runBenchTask() {
 function emcmakeGenerateTask() {
   return () => {
     const emcmake = which.sync('emcmake');
-    const ninja = which.sync('ninja', {nothrow: true});
+    const ninja = which.sync('ninja', { nothrow: true });
     const args = [
       'cmake',
       '-S',
@@ -173,11 +166,11 @@ function emcmakeGenerateTask() {
     ];
     logger.info(['emcmake', ...args].join(' '));
 
-    return spawn(emcmake, args, {stdio: 'inherit'});
+    return spawn(emcmake, args, { stdio: 'inherit' });
   };
 }
 
-function cmakeBuildTask(opts?: {targets?: ReadonlyArray<string>}) {
+function cmakeBuildTask(opts?: { targets?: ReadonlyArray<string> }) {
   return () => {
     const cmake = which.sync('cmake');
     const args = [
@@ -187,11 +180,11 @@ function cmakeBuildTask(opts?: {targets?: ReadonlyArray<string>}) {
     ];
     logger.info(['cmake', ...args].join(' '));
 
-    return spawn(cmake, args, {stdio: 'inherit'});
+    return spawn(cmake, args, { stdio: 'inherit' });
   };
 }
 
-function clangFormatTask(opts?: {fix?: boolean}) {
+function clangFormatTask(opts?: { fix?: boolean }) {
   return () => {
     const args = [
       ...(opts?.fix ? ['-i'] : ['--dry-run', '--Werror']),
