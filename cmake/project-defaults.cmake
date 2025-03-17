@@ -18,7 +18,7 @@ add_compile_options(
     /EHsc
     # Enable warnings and warnings as errors
     /W3
-    /WX
+    # /WX - Disabled warnings as errors in order to enable 32bit builds
     # Disable RTTI
     $<$<COMPILE_LANGUAGE:CXX>:/GR->
     # Use /O2 (Maximize Speed)
